@@ -69,7 +69,7 @@ def send_invoice():
         chat_id = f"{clean_phone}@c.us"
 
         # إرسال إلى Green API (الرابط وواجهة الـ Endpoint الخاصة بإرسال الرسائل)
-        url = f"https://api.green-api.com/waInstance{GREEN_API_INSTANCE_ID}/sendMessage/{GREEN_API_TOKEN}"
+        url = f"https://7107.api.greenapi.com{GREEN_API_INSTANCE_ID}/sendMessage/{GREEN_API_TOKEN}"
         
         payload = {
             "chatId": chat_id,
