@@ -8,10 +8,14 @@ app = Flask(__name__)
 
 logging.basicConfig(level=logging.INFO)
 
-@app.route('/send-invoice', methods=['POST'])
+# السماح بطريقتي POST (لاستقبال أودو) و GET (لتنشيط الرندر وإبقاء الأداة خضراء)
+@app.route('/send-invoice', methods=['POST', 'GET'])
 def send_invoice():
+    # إذا كانت الزيارة من أداة التنشيط بطريقة GET، نرد بنجاح فوري لإبقاء السيرفر مستيقظاً وتجنب خطأ 405
+    if request.method == 'GET':
+        return jsonify({"status": "active", "message": "Server is awake and running!"}), 200
+
     try:
-        # التصحيح: جلب المتغيرات البيئية بالأسماء الصحيحة المعرفة في Render
         GREEN_API_INSTANCE_ID = (os.environ.get('GREEN_API_INSTANCE_ID') or '').strip()
         GREEN_API_TOKEN = (os.environ.get('GREEN_API_TOKEN') or '').strip()
 
