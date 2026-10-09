@@ -2,26 +2,16 @@ import os
 import requests
 import logging
 import re
+import threading
 from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
 logging.basicConfig(level=logging.INFO)
 
-# السماح بطريقتي POST (لاستقبال أودو) و GET (لتنشيط الرندر وإبقاء الأداة خضراء)
-@app.route('/send-invoice', methods=['POST', 'GET'])
-def send_invoice():
-    # إذا كانت الزيارة من أداة التنشيط بطريقة GET، نرد بنجاح فوري لإبقاء السيرفر مستيقظاً وتجنب خطأ 405
-    if request.method == 'GET':
-        return jsonify({"status": "active", "message": "Server is awake and running!"}), 200
-
+def send_whatsapp_async(data, green_api_id, green_api_token):
+    """دالة تعمل في الخلفية لإرسال رسالة الواتساب عبر Green API دون إبطاء الاستجابة"""
     try:
-        GREEN_API_INSTANCE_ID = (os.environ.get('GREEN_API_INSTANCE_ID') or '').strip()
-        GREEN_API_TOKEN = (os.environ.get('GREEN_API_TOKEN') or '').strip()
-
-        data = request.json or {}
-        logging.info(f"Received payload from Odoo: {data}")
-        
         # استخراج رقم الهاتف
         phone_raw = (
             data.get('x_studio_phone') or 
@@ -57,18 +47,14 @@ def send_invoice():
 
         if not phone_raw:
             logging.error("No phone number found in payload.")
-            return jsonify({
-                "status": "error", 
-                "message": "No phone number provided in payload",
-                "received_data": data
-            }), 400
+            return
 
         # تنظيف رقم الهاتف وإبقاء الأرقام فقط
         clean_phone = re.sub(r'\D', '', str(phone_raw))
         chat_id = f"{clean_phone}@c.us"
 
         # رابط Green API مع رقم السيرفر الصحيح 7107
-        url = f"https://7107.api.green-api.com/waInstance{GREEN_API_INSTANCE_ID}/sendMessage/{GREEN_API_TOKEN}"
+        url = f"https://7107.api.green-api.com/waInstance{green_api_id}/sendMessage/{green_api_token}"
         
         payload = {
             "chatId": chat_id,
@@ -77,14 +63,33 @@ def send_invoice():
         
         headers = {'Content-Type': 'application/json'}
         response = requests.post(url, json=payload, headers=headers)
-        
-        try:
-            res_data = response.json()
-        except Exception:
-            res_data = response.text
+        logging.info(f"Green API Background Response: {response.text}")
 
-        logging.info(f"Green API Response: {res_data}")
-        return jsonify({"status": "success", "green_api_response": res_data}), response.status_code
+    except Exception as e:
+        logging.error(f"Error in background worker: {str(e)}")
+
+@app.route('/send-invoice', methods=['POST', 'GET'])
+def send_invoice():
+    # في حال طلب التنشيط بطريقة GET
+    if request.method == 'GET':
+        return jsonify({"status": "active", "message": "Server is awake and running!"}), 200
+
+    try:
+        GREEN_API_INSTANCE_ID = (os.environ.get('GREEN_API_INSTANCE_ID') or '').strip()
+        GREEN_API_TOKEN = (os.environ.get('GREEN_API_TOKEN') or '').strip()
+
+        data = request.json or {}
+        logging.info(f"Received payload from Odoo: {data}")
+        
+        # تشغيل عملية الإرسال في خيط (Thread) منفصل بالخلفية لضمان الرد الفوري على أودو
+        thread = threading.Thread(
+            target=send_whatsapp_async, 
+            args=(data, GREEN_API_INSTANCE_ID, GREEN_API_TOKEN)
+        )
+        thread.start()
+
+        # الرد الفوري على أودو لمنع أي Timeout
+        return jsonify({"status": "success", "message": "Webhook received and processing"}), 200
 
     except Exception as e:
         logging.error(f"Error executing webhook: {str(e)}")
